@@ -5,10 +5,10 @@
     "pickup": "Marina Bay Sands, Singapore",
     "dropoff": "Changi Airport Terminal 3",
     "rider_name": "Harshal",
-    "rider_phone": "+919322958608",
+    "rider_phone": "+91XXXXXXXXXX",
     "driver_name": "Ravi Kumar",
-    "driver_phone": "+919322958608",
-    "driver_whatsapp": "+919322958608",
+    "driver_phone": "+91XXXXXXXXXX",
+    "driver_whatsapp": "+91XXXXXXXXXX",
     "vehicle": "Toyota Prius · SML1234A"
   },
   {
@@ -17,10 +17,10 @@
     "pickup": "Orchard Road ION",
     "dropoff": "Holland Village",
     "rider_name": "Happy Roy",
-    "rider_phone": "+919322958608",
+    "rider_phone": "+91XXXXXXXXXX",
     "driver_name": "Ravi Kapoor",
-    "driver_phone": "+919322958608",
-    "driver_whatsapp": "+919322958608",
+    "driver_phone": "+91XXXXXXXXXX",
+    "driver_whatsapp": "+91XXXXXXXXXX",
     "vehicle": "Hyundai Ioniq · SML5678B"
   }
 ]
