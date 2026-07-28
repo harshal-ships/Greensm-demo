@@ -1,0 +1,26 @@
+[
+  {
+    "ride_id": "GRN-88421",
+    "completed_at": "2026-07-28T09:15:00+08:00",
+    "pickup": "Marina Bay Sands, Singapore",
+    "dropoff": "Changi Airport Terminal 3",
+    "rider_name": "Harshal",
+    "rider_phone": "+919322958608",
+    "driver_name": "Ravi Kumar",
+    "driver_phone": "+919322958608",
+    "driver_whatsapp": "+919322958608",
+    "vehicle": "Toyota Prius · SML1234A"
+  },
+  {
+    "ride_id": "GRN-88455",
+    "completed_at": "2026-07-28T11:40:00+08:00",
+    "pickup": "Orchard Road ION",
+    "dropoff": "Holland Village",
+    "rider_name": "Happy Roy",
+    "rider_phone": "+919322958608",
+    "driver_name": "Ravi Kapoor",
+    "driver_phone": "+919322958608",
+    "driver_whatsapp": "+919322958608",
+    "vehicle": "Hyundai Ioniq · SML5678B"
+  }
+]

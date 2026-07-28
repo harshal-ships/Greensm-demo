@@ -1,0 +1,5 @@
+agentduet[nova-sonic]==1.0.0b9
+python-dotenv>=1.0.0
+aws-sdk-bedrock-runtime>=0.1.0
+smithy-aws-core>=0.1.0
+requests>=2.31.0
