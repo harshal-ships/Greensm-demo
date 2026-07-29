@@ -18,14 +18,7 @@ pip install --pre -r requirements.txt
 cp .env.example .env
 ```
 
-Fill in `.env`:
-
-| Variable | Purpose |
-|----------|---------|
-| `AGENTDUET_API_KEY` | AgentDuet API key |
-| `AGENTDUET_CONNECTOR_UUID` | Connector UUID for your phone line |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Bedrock credentials with Nova 2 Sonic access |
-| `AWS_REGION` | Default `us-east-1` |
+Fill in `.env`
 
 ## Run
 
@@ -39,6 +32,11 @@ Call your AgentDuet number and ask:
 - *When do I get paid?*
 - *What’s the Instant Cash-Out fee?*
 - *Do you take a cut of tips?*
+- *What’s the minimum for Instant Cash-Out?*
+- *How long until trip earnings become available?*
+- *Can I change my bank account for weekly payout?*
+- *What’s the daily Instant Cash-Out limit?*
+- *What happens if Instant Cash-Out fails?*
 
 The agent should answer using only the policy document.
 

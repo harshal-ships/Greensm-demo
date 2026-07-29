@@ -12,8 +12,33 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+def _esc(value: Any) -> str:
+    return (
+        str(value if value is not None else "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _human_wa_error(error: str | None) -> str:
+    """Keep Pipedrive notes readable — never dump SDK / env setup text."""
+    raw = (error or "").strip()
+    low = raw.lower()
+    if not raw:
+        return "Could not send WhatsApp"
+    if "no_wa_subscriber" in low or "agentduet_wa_subscriber" in low or "subscriber" in low:
+        return "WhatsApp not set up yet (business inbox)"
+    if "inbox.notfound" in low or "whatsapp number not found" in low:
+        return "WhatsApp inbox not found"
+    if "timeout" in low:
+        return "WhatsApp timed out"
+    # One short line max
+    return raw.split("\n")[0][:120]
+
+
 class PipedriveClient:
-    """Creates lost-item deals (tickets) in Pipedrive, or mocks when unconfigured."""
+    """Creates simple lost-item deals, or mocks when unconfigured."""
 
     def __init__(
         self,
@@ -37,9 +62,17 @@ class PipedriveClient:
                 "PIPEDRIVE_API_TOKEN not set — Pipedrive writes will be mocked"
             )
 
-    def _request(self, method: str, path: str, payload: dict | None = None) -> dict:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        payload: dict | None = None,
+        query: dict | None = None,
+    ) -> dict:
         url = f"{self.base_url}{path}"
-        params = {"api_token": self.api_token}
+        params: dict[str, Any] = {"api_token": self.api_token}
+        if query:
+            params.update(query)
         try:
             resp = requests.request(
                 method,
@@ -72,48 +105,43 @@ class PipedriveClient:
         *,
         ride: dict[str, Any],
         item_description: str,
-        callback_number: str,
+        rider_phone: str,
         rider_name: str | None = None,
     ) -> dict[str, Any]:
-        safe_item = (item_description or "item")[:60]
-        title = f"Lost Item — {ride.get('ride_id')}: {safe_item}"
+        item = (item_description or "item").strip()[:50]
+        ride_id = ride.get("ride_id") or "unknown"
+        title = f"Lost item: {item} ({ride_id})"
+
         note_body = (
-            f"<p><b>GreenSM Lost Item Report</b></p>"
-            f"<p><b>Ride:</b> {ride.get('ride_id')}<br/>"
-            f"<b>When:</b> {ride.get('completed_at')}<br/>"
-            f"<b>Route:</b> {ride.get('pickup')} → {ride.get('dropoff')}<br/>"
-            f"<b>Driver:</b> {ride.get('driver_name')} ({ride.get('vehicle')})<br/>"
-            f"<b>Driver WhatsApp:</b> {ride.get('driver_whatsapp')}<br/>"
-            f"<b>Item:</b> {item_description}<br/>"
-            f"<b>Rider contact on file:</b> {callback_number}<br/>"
-            f"<b>Rider phone on ride:</b> {ride.get('rider_phone')}</p>"
+            "<p><b>GreenSM lost-item report</b></p>"
+            f"<p><b>Item</b><br/>{_esc(item_description)}</p>"
+            f"<p><b>Ride</b><br/>"
+            f"{_esc(ride_id)} · {_esc(ride.get('completed_at'))}<br/>"
+            f"{_esc(ride.get('pickup'))} → {_esc(ride.get('dropoff'))}<br/>"
+            f"{_esc(ride.get('vehicle'))}</p>"
+            f"<p><b>Rider</b><br/>"
+            f"{_esc(rider_name or ride.get('rider_name'))} · {_esc(rider_phone)}</p>"
+            f"<p><b>Driver</b><br/>"
+            f"{_esc(ride.get('driver_name'))} · WhatsApp {_esc(ride.get('driver_whatsapp'))}</p>"
+            "<p><i>Created automatically by the GreenSM voice agent.</i></p>"
         )
 
         if self.mock_mode:
             deal_id = f"mock-{uuid.uuid4().hex[:8]}"
             logger.info("[MOCK Pipedrive] deal_id=%s title=%s", deal_id, title)
-            return {
-                "deal_id": deal_id,
-                "title": title,
-                "mock": True,
-                "url": None,
-            }
+            return {"deal_id": deal_id, "title": title, "mock": True, "url": None}
 
-        person_name = rider_name or ride.get("rider_name") or "GreenSM Rider"
         person = self._request(
             "POST",
             "/persons",
             {
-                "name": person_name,
-                "phone": [{"value": callback_number, "primary": True}],
+                "name": rider_name or ride.get("rider_name") or "Rider",
+                "phone": [{"value": rider_phone or "", "primary": True}],
             },
         )
         person_id = person.get("id")
 
-        deal_payload: dict[str, Any] = {
-            "title": title,
-            "person_id": person_id,
-        }
+        deal_payload: dict[str, Any] = {"title": title, "person_id": person_id}
         stage_id = os.getenv("PIPEDRIVE_STAGE_ID", "").strip()
         if stage_id:
             try:
@@ -130,10 +158,9 @@ class PipedriveClient:
             self._request(
                 "POST",
                 "/notes",
-                {"deal_id": deal_id, "content": note_body},
+                {"deal_id": deal_id, "content": note_body, "pinned_to_deal_flag": 1},
             )
         except Exception:
-            # Deal exists — do not fail the whole ticket if the note fails.
             logger.exception("Pipedrive note failed for deal %s (deal kept)", deal_id)
 
         url = None
@@ -149,7 +176,13 @@ class PipedriveClient:
             "person_id": person_id,
         }
 
-    def add_note_to_deal(self, deal_id: str | int, content: str) -> dict[str, Any]:
+    def add_note_to_deal(
+        self,
+        deal_id: str | int,
+        content: str,
+        *,
+        html: bool = False,
+    ) -> dict[str, Any]:
         if self.mock_mode or str(deal_id).startswith("mock-"):
             logger.info("[MOCK Pipedrive] note on %s: %s", deal_id, content[:200])
             return {"mock": True, "deal_id": deal_id}
@@ -159,10 +192,35 @@ class PipedriveClient:
         except (TypeError, ValueError) as exc:
             raise RuntimeError(f"Invalid Pipedrive deal_id: {deal_id!r}") from exc
 
-        safe = (content or "").replace("<", "&lt;").replace(">", "&gt;")
+        body = content if html else f"<p>{_esc(content or '')}</p>"
         note = self._request(
-            "POST",
-            "/notes",
-            {"deal_id": numeric_id, "content": f"<p>{safe}</p>"},
+            "POST", "/notes", {"deal_id": numeric_id, "content": body}
         )
         return {"mock": False, "note_id": note.get("id"), "deal_id": deal_id}
+
+    def mark_whatsapp_status(
+        self,
+        deal_id: str | int,
+        *,
+        ok: bool,
+        driver_name: str,
+        driver_whatsapp: str,
+        item: str,
+        error: str | None = None,
+    ) -> None:
+        """Human-readable timeline note — no Meta message ids or SDK dumps."""
+        if ok:
+            content = (
+                f"<p><b>WhatsApp sent</b> to {_esc(driver_name)} "
+                f"({_esc(driver_whatsapp)}) about {_esc(item)}.</p>"
+            )
+        else:
+            content = (
+                f"<p><b>WhatsApp not sent</b> to {_esc(driver_name)} "
+                f"({_esc(driver_whatsapp)}).<br/>"
+                f"{_esc(_human_wa_error(error))}</p>"
+            )
+        try:
+            self.add_note_to_deal(deal_id, content, html=True)
+        except Exception:
+            logger.exception("Failed to log WhatsApp status on deal %s", deal_id)

@@ -1,9 +1,6 @@
 """
 GreenSM driver payment voice agent.
 
-AgentDuet + Amazon Nova 2 Sonic — answers driver pay questions from
-policy/greensm_driver_payment_policy.md only.
-
 Handles phone (TELCO) and WhatsApp (WA) inbound voice calls.
 """
 
@@ -52,9 +49,9 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logging.getLogger("agentduet").setLevel(logging.DEBUG)
-logging.getLogger("agentduet.voice_session").setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
+# Quiet AgentDuet internals (voice credit/flow spam); keep [USER] / [ASSISTANT] from this app.
+logging.getLogger("agentduet").setLevel(logging.WARNING)
 
 MODEL_ID = os.getenv("NOVA_SONIC_MODEL_ID", "amazon.nova-2-sonic-v1:0")
 REGION = (
@@ -450,7 +447,7 @@ class NovaSonicIntegration:
                                 text_content[:120],
                             )
                         else:
-                            logger.debug("Nova: %s", text_content[:120])
+                            logger.info("[ASSISTANT] %s", text_content[:120])
 
                 elif "audioOutput" in event:
                     if not self._first_audio_logged and self._call_started_at:

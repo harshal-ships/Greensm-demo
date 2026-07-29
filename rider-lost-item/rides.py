@@ -23,13 +23,6 @@ _RIDE_PREFIX_FIXES = (
 )
 
 
-def _normalize_phone(phone: str) -> str:
-    digits = re.sub(r"\D", "", phone or "")
-    if digits.startswith("00"):
-        digits = digits[2:]
-    return digits
-
-
 def normalize_ride_id(raw: str | None) -> str | None:
     """Normalize spoken/typed ride ids toward GRN-##### form."""
     if not raw:
@@ -43,13 +36,7 @@ def normalize_ride_id(raw: str | None) -> str | None:
             s = right + s[len(wrong) :]
             break
 
-    # GRN88421 → GRN-88421
     m = re.match(r"^(GRN)(\d{4,6})$", s)
-    if m:
-        return f"{m.group(1)}-{m.group(2)}"
-
-    # Already GRN-88421 after stripping then reinsert
-    m = re.match(r"^(GRN)[-]?(\d{4,6})$", s)
     if m:
         return f"{m.group(1)}-{m.group(2)}"
 
@@ -73,12 +60,11 @@ def load_rides() -> list[dict[str, Any]]:
 
 def lookup_rides(
     *,
-    rider_phone: str | None = None,
     ride_id: str | None = None,
     pickup_hint: str | None = None,
     dropoff_hint: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Return matching rides (most specific filters first)."""
+    """Return matching rides (ride id first, then pickup/dropoff hints)."""
     rides = load_rides()
     matches = rides
 
@@ -88,7 +74,6 @@ def lookup_rides(
         if exact:
             return exact
 
-        # Fuzzy: compare digits-only suffix (88421) against known ids
         digits = re.sub(r"\D", "", rid)
         if len(digits) >= 4:
             fuzzy = [
@@ -105,21 +90,6 @@ def lookup_rides(
                 )
                 return fuzzy
         return []
-
-    if rider_phone:
-        phone = _normalize_phone(rider_phone)
-        if len(phone) >= 8:
-            matches = [
-                r
-                for r in matches
-                if _normalize_phone(r.get("rider_phone", "")).endswith(phone[-8:])
-            ]
-        elif phone:
-            matches = [
-                r
-                for r in matches
-                if phone in _normalize_phone(r.get("rider_phone", ""))
-            ]
 
     if pickup_hint:
         hint = pickup_hint.lower().strip()
