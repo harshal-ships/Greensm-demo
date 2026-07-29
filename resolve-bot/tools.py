@@ -145,7 +145,7 @@ class SupportTools:
     ):
         self.pipedrive = pipedrive
         self.caller_phone = (caller_phone or "").strip()
-        self._pending_after_call: dict[str, Any] | None = None
+        self._pending_after_call: list[dict[str, Any]] = []
 
     async def execute(self, tool_name: str, tool_content: dict) -> dict[str, Any]:
         try:
@@ -319,21 +319,24 @@ class SupportTools:
         ride = matches[0]
         contact_phone = self.caller_phone or "unknown"
 
-        self._pending_after_call = {
-            "case_type": case_type,
-            "caller_role": caller_role,
-            "ride": ride,
-            "caller_phone": contact_phone,
-            "caller_name": caller_name,
-            "item_description": item_description or None,
-            "complaint_category": complaint_category or None,
-            "description": description or None,
-        }
+        self._pending_after_call.append(
+            {
+                "case_type": case_type,
+                "caller_role": caller_role,
+                "ride": ride,
+                "caller_phone": contact_phone,
+                "caller_name": caller_name,
+                "item_description": item_description or None,
+                "complaint_category": complaint_category or None,
+                "description": description or None,
+            }
+        )
         logger.info(
-            "Queued Pipedrive case for after call (type=%s role=%s ride=%s)",
+            "Queued Pipedrive case for after call (type=%s role=%s ride=%s queue=%d)",
             case_type,
             caller_role,
             ride["ride_id"],
+            len(self._pending_after_call),
         )
 
         if case_type == "lost":
@@ -361,47 +364,63 @@ class SupportTools:
         }
 
     async def finalize_after_call(self) -> dict[str, Any] | None:
-        """Create the Pipedrive ticket after the voice call hangs up."""
-        pending = self._pending_after_call
-        self._pending_after_call = None
-        if not pending:
+        """Create Pipedrive ticket(s) after the voice call hangs up."""
+        pending_list = self._pending_after_call
+        self._pending_after_call = []
+        if not pending_list:
             return None
 
-        ride = pending["ride"]
-        case_type = pending["case_type"]
-        try:
-            ticket = self.pipedrive.create_case(
-                case_type=case_type,
-                caller_role=pending["caller_role"],
-                ride=ride,
-                caller_phone=pending["caller_phone"],
-                caller_name=pending.get("caller_name"),
-                item_description=pending.get("item_description"),
-                complaint_category=pending.get("complaint_category"),
-                description=pending.get("description"),
+        created: list[dict[str, Any]] = []
+        for pending in pending_list:
+            ride = pending["ride"]
+            case_type = pending["case_type"]
+            try:
+                ticket = self.pipedrive.create_case(
+                    case_type=case_type,
+                    caller_role=pending["caller_role"],
+                    ride=ride,
+                    caller_phone=pending["caller_phone"],
+                    caller_name=pending.get("caller_name"),
+                    item_description=pending.get("item_description"),
+                    complaint_category=pending.get("complaint_category"),
+                    description=pending.get("description"),
+                )
+            except Exception:
+                logger.exception(
+                    "Post-call Pipedrive ticket failed case_type=%s ride=%s",
+                    case_type,
+                    ride.get("ride_id"),
+                )
+                created.append(
+                    {
+                        "ok": False,
+                        "case_type": case_type,
+                        "caller_role": pending.get("caller_role"),
+                        "ride_id": ride.get("ride_id"),
+                    }
+                )
+                continue
+
+            deal_id = ticket.get("deal_id")
+            logger.info(
+                "Post-call Pipedrive ticket created deal_id=%s case_type=%s role=%s ride=%s",
+                deal_id,
+                case_type,
+                pending.get("caller_role"),
+                ride.get("ride_id"),
             )
-        except Exception:
-            logger.exception("Post-call Pipedrive ticket failed")
-            return {
-                "ok": False,
-                "case_type": case_type,
-                "caller_role": pending.get("caller_role"),
-                "ride_id": ride.get("ride_id"),
-            }
+            created.append(
+                {
+                    "ok": True,
+                    "ticket_id": deal_id,
+                    "case_type": case_type,
+                    "caller_role": pending.get("caller_role"),
+                    "ride_id": ride.get("ride_id"),
+                }
+            )
 
-        deal_id = ticket.get("deal_id")
-        logger.info(
-            "Post-call Pipedrive ticket created deal_id=%s case_type=%s role=%s ride=%s",
-            deal_id,
-            case_type,
-            pending.get("caller_role"),
-            ride.get("ride_id"),
-        )
-
-        return {
-            "ok": True,
-            "ticket_id": deal_id,
-            "case_type": case_type,
-            "caller_role": pending.get("caller_role"),
-            "ride_id": ride.get("ride_id"),
-        }
+        if not created:
+            return None
+        if len(created) == 1:
+            return created[0]
+        return {"ok": all(c.get("ok") for c in created), "tickets": created}

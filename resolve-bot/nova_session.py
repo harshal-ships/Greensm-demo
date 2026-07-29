@@ -103,7 +103,19 @@ class NovaSonicIntegration:
 
         try:
             result = await self._tools.finalize_after_call()
-            if result and result.get("ok"):
+            if not result:
+                pass
+            elif result.get("tickets"):
+                for t in result["tickets"]:
+                    if t.get("ok"):
+                        logger.info(
+                            "Post-call ticket ready ticket_id=%s case_type=%s role=%s ride=%s",
+                            t.get("ticket_id"),
+                            t.get("case_type"),
+                            t.get("caller_role"),
+                            t.get("ride_id"),
+                        )
+            elif result.get("ok"):
                 logger.info(
                     "Post-call ticket ready ticket_id=%s case_type=%s role=%s ride=%s",
                     result.get("ticket_id"),
