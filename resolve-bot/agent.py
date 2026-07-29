@@ -1,8 +1,8 @@
 """
-GreenSM rider lost-item voice agent (AgentDuet 1.0.0b9).
+GreenSM Resolve bot (AgentDuet 1.0.0b9).
 
-Voice → notify driver on WhatsApp during the call → Pipedrive ticket on hangup.
-AI (Nova) handles dialogue + tool calls; code owns rides, WA, and CRM.
+Voice support for riders and drivers: lost items and complaints.
+AI (Nova) handles dialogue + tool calls; code owns rides and Pipedrive on hangup.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from agentduet import (
     CallAudioConfig,
     InboundCallMode,
     IncomingCallNotification,
-    IncomingMessage,
     SessionManager,
     SessionManagerConfig,
     TriggerConditionsBuilder,
@@ -24,12 +23,9 @@ from agentduet import (
 from dotenv import load_dotenv
 
 from audio import AGENTDUET_SAMPLE_RATE
-from handlers import handle_incoming_message, handle_voice_call
+from handlers import handle_voice_call
 from nova_session import MODEL_ID, create_bedrock_client
 from pipedrive import PipedriveClient
-from ticket_registry import TicketRegistry
-from wa_subscriber import log_startup_status
-from whatsapp import WhatsAppSender
 
 load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
@@ -39,7 +35,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-# Quiet AgentDuet internals; keep [USER] / [ASSISTANT] from this app.
 logging.getLogger("agentduet").setLevel(logging.WARNING)
 
 
@@ -51,7 +46,6 @@ async def main() -> None:
 
     bedrock_client = create_bedrock_client()
     pipedrive = PipedriveClient()
-    registry = TicketRegistry()
 
     config = SessionManagerConfig.create(
         api_key=api_key,
@@ -65,11 +59,8 @@ async def main() -> None:
 
     try:
         async with SessionManager(config) as sm:
-            wa_sender = WhatsAppSender(sm)
-            log_startup_status(wa_sender.has_subscriber)
-
             logger.info(
-                "GreenSM lost-item agent connected (model=%s pipedrive_mock=%s)",
+                "GreenSM Resolve bot connected (model=%s pipedrive_mock=%s)",
                 MODEL_ID,
                 pipedrive.mock_mode,
             )
@@ -78,7 +69,6 @@ async def main() -> None:
                 await sm.setup_trigger_conditions(
                     TriggerConditionsBuilder()
                     .inbound_call(InboundCallMode.ALL)
-                    .inbound_message(True)
                     .build()
                 )
             except Exception as exc:
@@ -90,27 +80,11 @@ async def main() -> None:
                     return
                 inflight_calls.add(noti.call_id)
                 try:
-                    await handle_voice_call(
-                        sm,
-                        noti,
-                        bedrock_client,
-                        pipedrive,
-                        registry,
-                        wa_sender,
-                    )
+                    await handle_voice_call(sm, noti, bedrock_client, pipedrive)
                 except Exception:
                     logger.exception("Unhandled error on call %s", noti.call_id)
                 finally:
                     inflight_calls.discard(noti.call_id)
-
-            @sm.on_incoming_message
-            async def on_message(msg: IncomingMessage) -> None:
-                try:
-                    await handle_incoming_message(
-                        msg, pipedrive, registry, wa_sender
-                    )
-                except Exception:
-                    logger.exception("Unhandled error on message %s", msg.id)
 
             await sm.run_forever()
     except KeyboardInterrupt:

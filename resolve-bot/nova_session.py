@@ -31,7 +31,7 @@ from audio import (
     downsample_24k_to_16k,
 )
 from prompts import SYSTEM_PROMPT
-from tools import TOOL_SCHEMAS, LostItemTools
+from tools import TOOL_SCHEMAS, SupportTools
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class NovaSonicIntegration:
         self,
         call: Call,
         client: BedrockRuntimeClient,
-        tools: LostItemTools,
+        tools: SupportTools,
     ):
         self._call = call
         self._client = client
@@ -105,8 +105,10 @@ class NovaSonicIntegration:
             result = await self._tools.finalize_after_call()
             if result and result.get("ok"):
                 logger.info(
-                    "Post-call ticket ready ticket_id=%s ride=%s",
+                    "Post-call ticket ready ticket_id=%s case_type=%s role=%s ride=%s",
                     result.get("ticket_id"),
+                    result.get("case_type"),
+                    result.get("caller_role"),
                     result.get("ride_id"),
                 )
         except Exception:
@@ -278,7 +280,7 @@ class NovaSonicIntegration:
     async def prepare(self) -> None:
         self._call_started_at = time.monotonic()
         logger.info(
-            "Opening Nova stream model=%s tools=lookupRecentRide,notifyDriverLostItem",
+            "Opening Nova stream model=%s tools=lookupRecentRide,registerCase",
             MODEL_ID,
         )
         self._stream = await self._client.invoke_model_with_bidirectional_stream(
@@ -394,17 +396,14 @@ class NovaSonicIntegration:
             payload["rides"] = compact
         for key in (
             "pipedrive_deferred",
-            "whatsapp_ok",
+            "case_type",
+            "caller_role",
             "ticket_id",
-            "driver_name",
             "ride_id",
             "error",
         ):
             if key in result and result[key] is not None:
                 payload[key] = result[key]
-        if result.get("whatsapp_error"):
-            err = result["whatsapp_error"]
-            payload["whatsapp_error"] = err if isinstance(err, str) else str(err)
         return payload
 
     async def _send_tool_result(self, tool_use_id: str, result: dict) -> None:

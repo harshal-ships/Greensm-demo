@@ -1,4 +1,4 @@
-"""Pipedrive CRM client for GreenSM lost-item tickets."""
+"""Pipedrive CRM client for GreenSM Resolve support cases."""
 
 from __future__ import annotations
 
@@ -11,6 +11,16 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+COMPLAINT_LABELS: dict[str, str] = {
+    "rude_driver": "Rude / unprofessional driver",
+    "unsafe_driving": "Unsafe driving",
+    "dirty_vehicle": "Dirty / smelly vehicle",
+    "bad_route": "Bad or long route",
+    "refused_stop": "Refused reasonable stop",
+    "abusive_rider": "Abusive / threatening rider",
+    "vehicle_damage": "Vehicle damage by rider",
+}
+
 
 def _esc(value: Any) -> str:
     return (
@@ -21,24 +31,8 @@ def _esc(value: Any) -> str:
     )
 
 
-def _human_wa_error(error: str | None) -> str:
-    """Keep Pipedrive notes readable — never dump SDK / env setup text."""
-    raw = (error or "").strip()
-    low = raw.lower()
-    if not raw:
-        return "Could not send WhatsApp"
-    if "no_wa_subscriber" in low or "agentduet_wa_subscriber" in low or "subscriber" in low:
-        return "WhatsApp not set up yet (business inbox)"
-    if "inbox.notfound" in low or "whatsapp number not found" in low:
-        return "WhatsApp inbox not found"
-    if "timeout" in low:
-        return "WhatsApp timed out"
-    # One short line max
-    return raw.split("\n")[0][:120]
-
-
 class PipedriveClient:
-    """Creates simple lost-item deals, or mocks when unconfigured."""
+    """Creates lost-item or complaint deals, or mocks when unconfigured."""
 
     def __init__(
         self,
@@ -61,6 +55,21 @@ class PipedriveClient:
             logger.warning(
                 "PIPEDRIVE_API_TOKEN not set — Pipedrive writes will be mocked"
             )
+
+    def _stage_id_for(self, case_type: str) -> int | None:
+        if case_type == "lost":
+            raw = os.getenv("PIPEDRIVE_LOST_STAGE_ID", "").strip()
+        else:
+            raw = os.getenv("PIPEDRIVE_COMPLAINT_STAGE_ID", "").strip()
+        if not raw:
+            raw = os.getenv("PIPEDRIVE_STAGE_ID", "").strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except ValueError:
+            logger.warning("Ignoring invalid stage id for case_type=%s: %r", case_type, raw)
+            return None
 
     def _request(
         self,
@@ -100,30 +109,50 @@ class PipedriveClient:
             raise RuntimeError(f"Pipedrive error on {path}: {data}")
         return data.get("data") or {}
 
-    def create_lost_item_ticket(
+    def create_case(
         self,
         *,
+        case_type: str,
+        caller_role: str,
         ride: dict[str, Any],
-        item_description: str,
-        rider_phone: str,
-        rider_name: str | None = None,
+        caller_phone: str,
+        caller_name: str | None = None,
+        item_description: str | None = None,
+        complaint_category: str | None = None,
+        description: str | None = None,
     ) -> dict[str, Any]:
-        item = (item_description or "item").strip()[:50]
         ride_id = ride.get("ride_id") or "unknown"
-        title = f"Lost item: {item} ({ride_id})"
+        role_label = "Rider" if caller_role == "rider" else "Driver"
+
+        if case_type == "lost":
+            item = (item_description or "item").strip()[:50]
+            title = f"Lost item: {item} ({ride_id})"
+            case_line = f"<p><b>Case</b><br/>Lost item · {role_label}</p>"
+            detail_line = f"<p><b>Item</b><br/>{_esc(item_description)}</p>"
+        else:
+            label = COMPLAINT_LABELS.get(
+                complaint_category or "", complaint_category or "Complaint"
+            )
+            title = f"Complaint: {label} ({ride_id})"
+            case_line = f"<p><b>Case</b><br/>Complaint · {role_label}</p>"
+            detail_line = (
+                f"<p><b>Category</b><br/>{_esc(label)}</p>"
+                f"<p><b>Summary</b><br/>{_esc(description)}</p>"
+            )
 
         note_body = (
-            "<p><b>GreenSM lost-item report</b></p>"
-            f"<p><b>Item</b><br/>{_esc(item_description)}</p>"
+            "<p><b>GreenSM Resolve report</b></p>"
+            f"{case_line}"
+            f"{detail_line}"
             f"<p><b>Ride</b><br/>"
             f"{_esc(ride_id)} · {_esc(ride.get('completed_at'))}<br/>"
             f"{_esc(ride.get('pickup'))} → {_esc(ride.get('dropoff'))}<br/>"
             f"{_esc(ride.get('vehicle'))}</p>"
-            f"<p><b>Rider</b><br/>"
-            f"{_esc(rider_name or ride.get('rider_name'))} · {_esc(rider_phone)}</p>"
-            f"<p><b>Driver</b><br/>"
-            f"{_esc(ride.get('driver_name'))} · WhatsApp {_esc(ride.get('driver_whatsapp'))}</p>"
-            "<p><i>Created automatically by the GreenSM voice agent.</i></p>"
+            f"<p><b>Caller</b><br/>"
+            f"{_esc(caller_name or ride.get('rider_name'))} · {_esc(caller_phone)} "
+            f"({role_label})</p>"
+            f"<p><b>Driver on ride</b><br/>{_esc(ride.get('driver_name'))}</p>"
+            "<p><i>Created automatically by the GreenSM Resolve voice agent.</i></p>"
         )
 
         if self.mock_mode:
@@ -131,23 +160,21 @@ class PipedriveClient:
             logger.info("[MOCK Pipedrive] deal_id=%s title=%s", deal_id, title)
             return {"deal_id": deal_id, "title": title, "mock": True, "url": None}
 
+        person_label = caller_name or (role_label)
         person = self._request(
             "POST",
             "/persons",
             {
-                "name": rider_name or ride.get("rider_name") or "Rider",
-                "phone": [{"value": rider_phone or "", "primary": True}],
+                "name": person_label,
+                "phone": [{"value": caller_phone or "", "primary": True}],
             },
         )
         person_id = person.get("id")
 
         deal_payload: dict[str, Any] = {"title": title, "person_id": person_id}
-        stage_id = os.getenv("PIPEDRIVE_STAGE_ID", "").strip()
-        if stage_id:
-            try:
-                deal_payload["stage_id"] = int(stage_id)
-            except ValueError:
-                logger.warning("Ignoring invalid PIPEDRIVE_STAGE_ID=%r", stage_id)
+        stage_id = self._stage_id_for(case_type)
+        if stage_id is not None:
+            deal_payload["stage_id"] = stage_id
 
         deal = self._request("POST", "/deals", deal_payload)
         deal_id = deal.get("id")
@@ -167,7 +194,13 @@ class PipedriveClient:
         if self.company_domain and deal_id:
             url = f"https://{self.company_domain}.pipedrive.com/deal/{deal_id}"
 
-        logger.info("Created Pipedrive deal id=%s title=%s", deal_id, title)
+        logger.info(
+            "Created Pipedrive deal id=%s title=%s case_type=%s role=%s",
+            deal_id,
+            title,
+            case_type,
+            caller_role,
+        )
         return {
             "deal_id": deal_id,
             "title": title,
@@ -197,30 +230,3 @@ class PipedriveClient:
             "POST", "/notes", {"deal_id": numeric_id, "content": body}
         )
         return {"mock": False, "note_id": note.get("id"), "deal_id": deal_id}
-
-    def mark_whatsapp_status(
-        self,
-        deal_id: str | int,
-        *,
-        ok: bool,
-        driver_name: str,
-        driver_whatsapp: str,
-        item: str,
-        error: str | None = None,
-    ) -> None:
-        """Human-readable timeline note — no Meta message ids or SDK dumps."""
-        if ok:
-            content = (
-                f"<p><b>WhatsApp sent</b> to {_esc(driver_name)} "
-                f"({_esc(driver_whatsapp)}) about {_esc(item)}.</p>"
-            )
-        else:
-            content = (
-                f"<p><b>WhatsApp not sent</b> to {_esc(driver_name)} "
-                f"({_esc(driver_whatsapp)}).<br/>"
-                f"{_esc(_human_wa_error(error))}</p>"
-            )
-        try:
-            self.add_note_to_deal(deal_id, content, html=True)
-        except Exception:
-            logger.exception("Failed to log WhatsApp status on deal %s", deal_id)

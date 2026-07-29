@@ -1,4 +1,4 @@
-"""Mock recent rides lookup for the GreenSM lost-item demo."""
+"""Mock recent rides lookup for the GreenSM Resolve demo."""
 
 from __future__ import annotations
 
@@ -12,34 +12,16 @@ logger = logging.getLogger(__name__)
 
 RIDES_PATH = Path(__file__).resolve().parent / "data" / "recent_rides.json"
 
-# Common speech-to-text mishears for "GRN"
-_RIDE_PREFIX_FIXES = (
-    ("GIN", "GRN"),
-    ("GREEN", "GRN"),
-    ("GREN", "GRN"),
-    ("JRN", "GRN"),
-    ("JIN", "GRN"),
-    ("CRM", "GRN"),
-)
-
 
 def normalize_ride_id(raw: str | None) -> str | None:
-    """Normalize spoken/typed ride ids toward GRN-##### form."""
+    """Strip separators; digits-only → G88421 form."""
     if not raw:
         return None
     s = re.sub(r"[^A-Za-z0-9]", "", raw).upper()
     if not s:
         return None
-
-    for wrong, right in _RIDE_PREFIX_FIXES:
-        if s.startswith(wrong):
-            s = right + s[len(wrong) :]
-            break
-
-    m = re.match(r"^(GRN)(\d{4,6})$", s)
-    if m:
-        return f"{m.group(1)}-{m.group(2)}"
-
+    if s.isdigit():
+        return f"G{s}"
     return s
 
 
