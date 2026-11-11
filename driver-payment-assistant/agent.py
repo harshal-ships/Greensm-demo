@@ -28,7 +28,7 @@ from agentduet import (
     new_session_id,
 )
 from agentduet.events import Network
-from agentduet.exceptions import BufferFullError, CallNotFoundError
+from agentduet.exceptions import BufferFullError, CallClosedError, CallNotFoundError
 from aws_sdk_bedrock_runtime.client import (
     BedrockRuntimeClient,
     InvokeModelWithBidirectionalStreamOperationInput,
@@ -136,12 +136,9 @@ def _is_interruption_marker(text: str) -> bool:
 
 
 async def attach_inbound_call(sm: SessionManager, noti: IncomingCallNotification) -> Call:
-    session = await sm.open_session(new_session_id(), noti.subscriber)
-    try:
-        return await session.process_call(noti)
-    except CallNotFoundError:
-        session = await sm.open_session(new_session_id(), noti.subscriber)
-        return await session.process_call(noti)
+    session = await sm.open_session(new_session_id(), noti.subscriber_id)
+    # Expired/already-claimed notifications cannot be recovered by opening again.
+    return await session.process_call(noti)
 
 
 class NovaSonicIntegration:
@@ -356,6 +353,8 @@ class NovaSonicIntegration:
         for task in (self._send_to_nova_task, self._recv_from_nova_task):
             if task and not task.done():
                 task.cancel()
+        tasks = [t for t in (self._send_to_nova_task, self._recv_from_nova_task) if t]
+        await asyncio.gather(*tasks, return_exceptions=True)
         await self.end_session()
 
     async def end_session(self) -> None:
@@ -406,7 +405,7 @@ class NovaSonicIntegration:
                         }
                     }
                 )
-        except ConnectionClosed:
+        except (ConnectionClosed, CallClosedError):
             pass
         except Exception:
             logger.exception("Error streaming caller audio to Nova")
@@ -462,7 +461,7 @@ class NovaSonicIntegration:
                             "AgentDuet send buffer full — dropping audio chunk"
                         )
 
-        except (ConnectionClosed, asyncio.CancelledError):
+        except (ConnectionClosed, CallClosedError, asyncio.CancelledError):
             pass
         except Exception:
             if self._is_active:
@@ -483,12 +482,15 @@ async def handle_voice_call(
         "%s %s from %s (network=%s)",
         channel_label,
         noti.call_id,
-        noti.participant.value,
+        noti.from_address.value,
         noti.network,
     )
 
     try:
         call = await attach_inbound_call(sm, noti)
+    except CallNotFoundError:
+        logger.info("Call %s expired or was already claimed — skipping", noti.call_id)
+        return
     except Exception:
         logger.exception("Failed to attach call %s", noti.call_id)
         return
@@ -501,22 +503,27 @@ async def handle_voice_call(
         # Sync hangup handlers run in a worker thread — schedule on the main loop.
         asyncio.run_coroutine_threadsafe(nova._on_terminated(), loop)
 
+    prepare_task = None
+    answer_task = None
     try:
         answer_task = asyncio.create_task(call.answer())
         prepare_task = asyncio.create_task(nova.prepare())
 
         if not await answer_task:
             logger.error("Failed to answer call %s", call.id)
-            await nova.cancel()
-            if not prepare_task.done():
-                prepare_task.cancel()
-                await asyncio.gather(prepare_task, return_exceptions=True)
             return
 
         await prepare_task
         await nova.run_bridge()
     except Exception:
         logger.exception("Error in Nova Sonic voice integration")
+    finally:
+        tasks = [task for task in (answer_task, prepare_task) if task is not None]
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await nova.cancel()
         try:
             await call.close()
         except Exception:

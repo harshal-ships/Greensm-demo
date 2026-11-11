@@ -1,4 +1,4 @@
-"""Inbound call attach + voice call handler (AgentDuet 1.0.0b9)."""
+"""Inbound call attach + voice call handler (AgentDuet 1.1.0b11)."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ async def attach_inbound_call(
     sm: SessionManager, noti: IncomingCallNotification
 ) -> Call:
     """Open a session on the call's subscriber and claim the inbound call."""
-    session = await sm.open_session(new_session_id(), noti.subscriber)
+    session = await sm.open_session(new_session_id(), noti.subscriber_id)
     try:
         return await session.process_call(noti)
     except CallNotFoundError:
@@ -44,11 +44,11 @@ async def handle_voice_call(
     pipedrive: PipedriveClient,
 ) -> None:
     channel = "WhatsApp call" if noti.network == Network.WA else "Phone call"
-    logger.info("%s %s from %s", channel, noti.call_id, noti.participant.value)
+    logger.info("%s %s from %s", channel, noti.call_id, noti.from_address.value)
 
     tools = SupportTools(
         pipedrive=pipedrive,
-        caller_phone=noti.participant.value,
+        caller_phone=noti.from_address.value,
     )
 
     try:
@@ -66,6 +66,8 @@ async def handle_voice_call(
     def on_hangup(_payload: object = None) -> None:
         asyncio.run_coroutine_threadsafe(nova.shutdown(), loop)
 
+    answer_task = None
+    prepare_task = None
     try:
         answer_task = asyncio.create_task(call.answer())
         prepare_task = asyncio.create_task(nova.prepare())
@@ -112,7 +114,16 @@ async def handle_voice_call(
         except Exception:
             pass
     finally:
+        tasks = [task for task in (answer_task, prepare_task) if task is not None]
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         try:
             await nova.shutdown()
+        except Exception:
+            pass
+        try:
+            await call.close()
         except Exception:
             pass

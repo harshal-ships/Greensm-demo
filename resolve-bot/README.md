@@ -5,7 +5,7 @@ Pipedrive ticket created **after the call ends**. No WhatsApp in this demo.
 
 Caller phone = inbound call CLI (no callback asked).
 
-Requires **AgentDuet `1.0.0b9`** (`agentduet[nova-sonic]==1.0.0b9` in `requirements.txt`).
+Requires **AgentDuet `1.1.0b11`** (`agentduet==1.1.0b11` in `requirements.txt`).
 
 ## Supported cases
 
@@ -43,7 +43,7 @@ Caller speech ──► Nova (talk + tool calls)
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install --pre -r requirements.txt
+pip install -r requirements.txt
 cp .env.example .env
 ```
 
@@ -90,3 +90,10 @@ Rides in [`data/recent_rides.json`](data/recent_rides.json): **G88421**, **G8845
 | `rides.py` + `data/recent_rides.json` | Mock rides |
 | `pipedrive.py` | Deal + notes (lost vs complaint stages) |
 | `phone.py` | Phone normalization (shared utility) |
+
+## SDK compatibility
+
+Requires Python 3.12+ and AgentDuet `1.1.0b11`. The custom Nova bridge uses
+explicit Bedrock/Smithy `0.7.0` dependencies; the removed `nova-sonic` extra is
+not needed. Inbound events use `subscriber_id` and `from_address`. Expired call
+notifications are skipped, and call resources are cleaned up on shutdown.

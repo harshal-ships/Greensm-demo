@@ -4,7 +4,7 @@ Demo voice agent for GreenSM. When a driver calls in and asks something like **"
 
 ## Stack
 
-- **[AgentDuet](https://pypi.org/project/agentduet/1.0.0b9/)** `1.0.0b9` — incoming call + bidirectional PCM audio
+- **[AgentDuet](https://pypi.org/project/agentduet/1.1.0b11/)** `1.1.0b11` — incoming call + bidirectional PCM audio
 - **Amazon Nova 2 Sonic** (`amazon.nova-2-sonic-v1:0`) — speech-to-speech on Bedrock
 - **Ground truth:** [`policy/greensm_driver_payment_policy.md`](policy/greensm_driver_payment_policy.md)
 
@@ -14,7 +14,7 @@ Demo voice agent for GreenSM. When a driver calls in and asks something like **"
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install --pre -r requirements.txt
+pip install -r requirements.txt
 cp .env.example .env
 ```
 
@@ -46,3 +46,10 @@ The agent should answer using only the policy document.
 |------|------|
 | `agent.py` | Full demo — AgentDuet call handling + Nova 2 Sonic bridge + policy prompt |
 | `policy/greensm_driver_payment_policy.md` | Payment policy ground truth |
+
+## SDK compatibility
+
+Requires Python 3.12+ and AgentDuet `1.1.0b11`. The custom Nova bridge uses
+explicit Bedrock/Smithy `0.7.0` dependencies; the removed `nova-sonic` extra is
+not needed. Inbound events use `subscriber_id` and `from_address`. Expired call
+notifications are skipped, and call resources are cleaned up on shutdown.

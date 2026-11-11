@@ -1,5 +1,5 @@
 """
-GreenSM Resolve bot (AgentDuet 1.0.0b9).
+GreenSM Resolve bot (AgentDuet 1.1.0b11).
 
 Voice support for riders and drivers: lost items and complaints.
 AI (Nova) handles dialogue + tool calls; code owns rides and Pipedrive on hangup.

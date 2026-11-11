@@ -1,5 +1,6 @@
-agentduet[nova-sonic]==1.0.0b9
+agentduet==1.1.0b11
 python-dotenv>=1.0.0
-aws-sdk-bedrock-runtime>=0.1.0
-smithy-aws-core>=0.1.0
+# Keep the Bedrock/Smithy API used by the custom Nova bridge.
+aws-sdk-bedrock-runtime==0.7.0
+smithy-aws-core==0.7.0
 requests>=2.31.0
